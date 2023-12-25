@@ -49,6 +49,7 @@ func NewRootCmd() *cobra.Command {
 	rootCmd.AddCommand(newRemoveTrackFromPlaylistCmd())
 	rootCmd.AddCommand(newListPlaylistTracksCmd())
 	rootCmd.AddCommand(newShowTrackCmd())
+	rootCmd.AddCommand(newDoStuffCmd())
 	return rootCmd
 }
 
@@ -56,11 +57,19 @@ func prerun(cmd *cobra.Command, args []string) {
 	// initialize authenticator
 	auth = spotify.NewAuthenticator(
 		redirectURI,
+		spotify.ScopePlaylistReadPrivate,
+		spotify.ScopePlaylistModifyPublic,
+		spotify.ScopePlaylistModifyPrivate,
+		spotify.ScopePlaylistReadCollaborative,
+		spotify.ScopeUserFollowModify,
+		spotify.ScopeUserFollowRead,
+		spotify.ScopeUserLibraryModify,
+		spotify.ScopeUserLibraryRead,
 		spotify.ScopeUserReadPrivate,
 		spotify.ScopeUserReadCurrentlyPlaying,
-		spotify.ScopePlaylistReadCollaborative,
-		spotify.ScopePlaylistModifyPrivate,
-		spotify.ScopePlaylistModifyPublic)
+		spotify.ScopeUserReadRecentlyPlayed,
+		spotify.ScopeUserTopRead,
+	)
 	auth.SetAuthInfo(os.Getenv("SPOTIFY_ID"), os.Getenv("SPOTIFY_SECRET"))
 
 	// exit early

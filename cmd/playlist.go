@@ -5,6 +5,7 @@ import (
 	"reflect"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -17,6 +18,10 @@ var (
 
 var (
 	trackID string
+)
+
+var (
+	yearPlaylist string
 )
 
 var (
@@ -67,6 +72,18 @@ func newShowTrackCmd() *cobra.Command {
 	}
 	addtoCmd.Flags().StringVar(&trackID, "tid", "", "Id of track to display.")
 	return addtoCmd
+}
+
+func newDoStuffCmd() *cobra.Command {
+	doStuffCmd := &cobra.Command{
+		Use:   "do --tid [Yearly playlist id]",
+		Short: "Do stuff",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return doStuff(cmd, args)
+		},
+	}
+	doStuffCmd.Flags().StringVar(&yearPlaylist, "tid", "", "Year playlist id.")
+	return doStuffCmd
 }
 
 func newAddtoPlaylistCmd() *cobra.Command {
@@ -203,8 +220,69 @@ func displayTrackById(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-  displayTrack(track)
-  return nil
+	displayTrack(track)
+	return nil
+}
+
+func doStuff(cmd *cobra.Command, args []string) error {
+	// current user
+	user, err := client.CurrentUser()
+	if err != nil {
+		return err
+	}
+	fmt.Println("User: ", user.DisplayName)
+
+	playlists, err := getPlaylists()
+
+	if err != nil {
+		return err
+	}
+
+	var yearPlaylistActual *spotify.SimplePlaylist = nil
+	weekly := []*spotify.SimplePlaylist{}
+
+	for _, playlist := range playlists.Playlists {
+		playlist := playlist
+		if strings.HasSuffix(playlist.Name, ".23") || strings.HasPrefix(playlist.Name, "Rediscover") {
+			fmt.Println(playlist.Name)
+			weekly = append(weekly, &playlist)
+		}
+		if string(playlist.ID) == yearPlaylist {
+			fmt.Printf("Year playlist: %s\n", playlist.Name)
+			yearPlaylistActual = &playlist
+		}
+	}
+
+	for _, playlist := range weekly {
+		fmt.Printf("Working on %q\n", playlist.Name)
+		tracks, err := client.GetPlaylistTracks(user.ID, playlist.ID)
+		if err != nil {
+			continue
+		}
+		for len(tracks.Tracks) < tracks.Total {
+			offset := len(tracks.Tracks)
+			next, err := client.GetPlaylistTracksOpt(user.ID, playlist.ID, &spotify.Options{
+				Offset: &offset,
+			}, "")
+			if err != nil {
+				fmt.Printf("got error: %v", err)
+				break
+			}
+			tracks.Tracks = append(tracks.Tracks, next.Tracks...)
+		}
+		trackIds := []spotify.ID{}
+		for _, track := range tracks.Tracks {
+			trackIds = append(trackIds, track.Track.ID)
+		}
+		snapshotId, err := client.AddTracksToPlaylist(user.ID, yearPlaylistActual.ID, trackIds...)
+		if err != nil {
+			fmt.Printf("Got error %v", err)
+			continue
+		}
+		fmt.Printf("Got snapshot Id: %q", snapshotId)
+	}
+
+	return nil
 }
 
 func displayCurrentTrack(cmd *cobra.Command, args []string) error {
@@ -221,7 +299,7 @@ func displayCurrentTrack(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-  displayTrack(playing.Item)
+	displayTrack(playing.Item)
 	return nil
 }
 
@@ -480,12 +558,27 @@ func listTracksFromPlaylist(cmd *cobra.Command, args []string) error {
 }
 
 func getPlaylists() (*spotify.SimplePlaylistPage, error) {
-	playlists, err := client.CurrentUsersPlaylists()
+	var limit = 49
+	playlists, err := client.CurrentUsersPlaylistsOpt(&spotify.Options{
+		Limit: &limit,
+	})
 	if err != nil {
 		return &(spotify.SimplePlaylistPage{}), err
 	}
 
-  return playlists, nil
+	for len(playlists.Playlists) < playlists.Total {
+		offset := len(playlists.Playlists)
+		next, err := client.CurrentUsersPlaylistsOpt(&spotify.Options{
+			Limit:  &limit,
+			Offset: &offset,
+		})
+		if err != nil {
+			break
+		}
+		playlists.Playlists = append(playlists.Playlists, next.Playlists...)
+	}
+
+	return playlists, nil
 }
 
 func getPlaylistByName(playlistName string) (spotify.SimplePlaylist, error) {
